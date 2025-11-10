@@ -1,0 +1,33 @@
+{
+    "data_path": {
+        "dev_data_path": "outputs/data_clean_split/data/train.csv",
+        "oot_data_path": "outputs/data_clean_split/data/test.csv"
+    },
+    "output_path": {
+        "dst": "outputs/feature_select",
+        "dst_outs": "outputs/feature_select/outputs",
+        "use_feature_path": "outputs/feature_select/outputs/use_fea.json",
+        "feature_json_path": "results/feature_select.json",
+        "feature_startup_path": "startup/feature_select.txt"
+    },
+    "settings": {
+        "id_col": "id",
+        "date_col": "date",
+        "label": "label",
+        "base_fea": ["id", "date", "label", "channel"],
+        "iv_thresh": 0.02,
+        "psi_thresh": 0.2,
+        "miss_thresh": 0.9,
+        "corr_thresh": 0.8,
+        "use_null_importance": false,
+        "top_n": 500,
+        "upload_fea_list": ["fea_2", "fea_3", "fea_4", "fea_5", "fea_6", "fea_7", "fea_8", "fea_9", "fea_10", 
+        "fea_11", "fea_12", "fea_13", "fea_14", "fea_15", "fea_16", "fea_17", "fea_18", "fea_19", 
+        "fea_20", "fea_21", "fea_22", "fea_23", "fea_24", "fea_25", "fea_26", "fea_27", "fea_28", 
+        "fea_29", "fea_30", "fea_31", "fea_32", "fea_33", "fea_34", "fea_35", "fea_36", "fea_37", 
+        "fea_38", "fea_39", "fea_40", "fea_41", "fea_42", "fea_43", "fea_44", "fea_45", "fea_46", 
+        "fea_47", "fea_48", "fea_49", "fea_50", "fea_51", "fea_52", "fea_53", "fea_54", "fea_55", 
+        "fea_56", "fea_57", "fea_58", "fea_59", "fea_60", "fea_61", "fea_62", "fea_63", "fea_64", 
+        "fea_65", "fea_66", "fea_67", "fea_68", "fea_69", "fea_70", "fea_71", "fea_72","fea_1"]
+    }
+} 

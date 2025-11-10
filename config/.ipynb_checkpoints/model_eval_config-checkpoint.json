@@ -1,0 +1,48 @@
+{
+    "model_file": {
+        "pkl_mod": "/home/bxuser/AutoML-codes/outputs/model_file/model/modelname_ex.pkl",
+        "pmml_mod": "/home/bxuser/AutoML-codes/outputs/model_file/model/modelname_ex.pmml",
+        "use_fea": "/home/bxuser/AutoML-codes/outputs/model_file/outputs/final_model_fea.json",
+        "feature_imp": "/home/bxuser/AutoML-codes/outputs/model_file/outputs/feature_imp.csv"
+    },
+    "data_path": {
+        "oot": "/home/bxuser/AutoML-codes/outputs/model_data/split/test.csv",
+        "psi": "/home/bxuser/AutoML-codes/outputs/model_data/split/psi.csv",
+        "dev": "/home/bxuser/AutoML-codes/outputs/model_data/split/train.csv"
+    },
+    "output_path": {
+        "dst": "/home/bxuser/AutoML-codes/outputs/model_evaluation",
+        "dst_data": "/home/bxuser/AutoML-codes/outputs/model_evaluation/data",
+        "dst_rp": "/home/bxuser/AutoML-codes/outputs/model_evaluation/report",
+        "dst_outs": "/home/bxuser/AutoML-codes/outputs/model_evaluation/outputs"
+    },
+    "settings": {
+        "id_col": "id",
+        "date_col": "date",
+        "label": "label",
+        "channel_col": "channel",
+        "base_fea": [
+            "id",
+            "date",
+            "label",
+            "channel"
+        ],
+        "bin_num": 4,
+        "gen_report": true,
+        "save_output": true,
+        "run_eval": true,
+        "run_iter": "1"
+    },
+    "score": {
+        "pdo": 50,
+        "theta": 20,
+        "p0": 600,
+        "prob_col": "prob_",
+        "score_col": "score_"
+    },
+    "report_all": {
+        "data_quality_report_path": "/home/bxuser/AutoML-codes/outputs/data_quality/report/data_quality_report_1.xls",
+        "feature_importance_path": "/home/bxuser/AutoML-codes/outputs/model_file/outputs/feature_imp.csv",
+        "feature_outputs_dir": "/home/bxuser/AutoML-codes/outputs/feature_analysis/outputs"
+    }
+}
