@@ -1,0 +1,30 @@
+{
+    "data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/data/data.csv",
+    "output_path": {
+        "dst": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_analysis",
+        "dst_rp": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_analysis/report",
+        "dst_outs": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_analysis/outputs",
+        "dq_report_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_analysis/report/data_quality_report.xls",
+        "dq_json_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/results/data_analysis_8ae9.json",
+        "dq_startup_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/startup/data_analysis.txt"
+    },
+    "settings": {
+        "id_col": "id",
+        "date_col": "date",
+        "channel_col": "channel",
+        "label": "label",
+        "base_fea": [
+            "id",
+            "date",
+            "label",
+            "channel"
+        ],
+        "missing_list": [
+            -9999,
+            "-9998"
+        ],
+        "run_data_quality": true,
+        "gen_report": true,
+        "save_output": true
+    }
+}

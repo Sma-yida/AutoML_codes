@@ -1,0 +1,65 @@
+{
+    "model_file": {
+        "pkl_model_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_train/model/model.pkl",
+        "pmml_model_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_train/model/model.pmml",
+        "model_fea_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_train/outputs/final_model_fea.json"
+    },
+    "data_path": {
+        "oot_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/test.csv",
+        "psi_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/psi.csv",
+        "dev_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/train.csv"
+    },
+    "output_path": {
+        "dst": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_eval",
+        "dst_data": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_eval/data",
+        "dst_rp": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_eval/report",
+        "dst_outs": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_eval/outputs",
+        "eval_json_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/results/model_eval_1778.json",
+        "eval_startup_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/startup/model_eval.txt",
+        "model_evaluation_report_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_eval/report/model_evaluation_report.xlsx"
+    },
+    "settings": {
+        "id_col": "id",
+        "date_col": "date",
+        "label": "label",
+        "channel_col": "channel",
+        "base_fea": [
+            "id",
+            "date",
+            "label",
+            "channel"
+        ],
+        "bin_num": 10,
+        "gen_report": false,
+        "save_output": true,
+        "run_eval": true
+    },
+    "score": {
+        "pdo": 91,
+        "theta": 8.6,
+        "p0": 410,
+        "cut_points": [
+            0,
+            400,
+            450,
+            500,
+            550,
+            600,
+            650,
+            700,
+            750,
+            800,
+            850,
+            999
+        ],
+        "prob_col": "prob_",
+        "score_col": "score_"
+    },
+    "report_all": {
+        "data_quality_report_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_analysis/report/data_quality_report.xls",
+        "feature_importance_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/model_train/outputs/feature_imp.csv",
+        "target_stats_report_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/report/target_stats_report.csv",
+        "mono_var_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs/mono_var.csv",
+        "single_var_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs/single_var.csv"
+    }
+}
