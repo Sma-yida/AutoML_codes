@@ -1,16 +1,16 @@
 {
     "data_path": {
-        "dev_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/train.csv",
-        "oot_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/test.csv"
+        "dev_data_path": "outputs/data_clean_split/data/train.csv",
+        "oot_data_path": "outputs/data_clean_split/data/test.csv"
     },
     "output_path": {
-        "dst": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select",
-        "dst_outs": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs",
-        "use_feature_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs/use_fea.json",
-        "mono_var_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs/mono_var.csv",
-        "single_var_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/feature_select/outputs/single_var.csv",
-        "feature_json_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/results/feature_select_07d9.json",
-        "feature_startup_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/startup/feature_select.txt"
+        "dst": "outputs/feature_select",
+        "dst_outs": "outputs/feature_select/outputs",
+        "use_feature_path": "outputs/feature_select/outputs/use_fea.json",
+        "mono_var_path": "outputs/feature_select/outputs/mono_var.csv",
+        "single_var_path": "outputs/feature_select/outputs/single_var.csv",
+        "feature_json_path": "results/feature_select_07d9.json",
+        "feature_startup_path": "startup/feature_select.txt"
     },
     "settings": {
         "id_col": "id",

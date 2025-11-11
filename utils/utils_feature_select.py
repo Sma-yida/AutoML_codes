@@ -223,7 +223,7 @@ def calculate_correlation(data: pd.DataFrame, sorted_features: list, threshold: 
     # 替换特殊缺失值为 NaN
     data_corr = data[sorted_features].replace(MISSING_VALUES, np.nan)
     pearson_corr = data_corr.corr(method='pearson').abs().values
-    spearman_corr = data_corr.corr(method='spearman').abs().values
+    # spearman_corr = data_corr.corr(method='spearman').abs().values
     n = len(sorted_features)
     to_drop = np.zeros(n, dtype=bool)
     for i in range(n):
@@ -232,7 +232,8 @@ def calculate_correlation(data: pd.DataFrame, sorted_features: list, threshold: 
         for j in range(i + 1, n):
             if to_drop[j]:
                 continue
-            if (pearson_corr[i, j] > threshold) or (spearman_corr[i, j] > threshold):
+            # if (pearson_corr[i, j] > threshold) or (spearman_corr[i, j] > threshold):
+            if (pearson_corr[i, j] > threshold):
                 to_drop[j] = True
     return [sorted_features[i] for i in range(n) if to_drop[i]]
     

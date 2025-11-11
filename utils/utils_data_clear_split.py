@@ -320,7 +320,7 @@ def data_split_func(orl_data, config):
         
         # 生成JSON报告-用于页面展示
         generate_clear_split_json(
-            data=orl_data,
+            orl_data,
             data_cleared=data,  # 这里假设data已经是清洗后的数据
             method=method,
             train_df=train_df,

@@ -1,17 +1,17 @@
 {
-    "data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/data/data.csv",
+    "data_path": "data/data.csv",
     "output_path": {
-        "dst": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split",
-        "dst_data": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data",
-        "dst_rp": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/report",
-        "dst_outs": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/outputs",
-        "dst_rp_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/report/target_stats_report.csv",
-        "clean_json_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/results/data_clean_split_e08a.json",
-        "clean_startup_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/startup/data_clean_split.txt",
-        "dev_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/train.csv",
-        "oot_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/test.csv",
-        "psi_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/psi.csv",
-        "cleaned_data_path": "/home/bxuser/risk-modeling/e2bab098-4d00-4050-8f36-00e1ea831e1d/outputs/data_clean_split/data/cleaned_data.csv"
+        "dst": "outputs/data_clean_split",
+        "dst_data": "outputs/data_clean_split/data",
+        "dst_rp": "outputs/data_clean_split/report",
+        "dst_outs": "outputs/data_clean_split/outputs",
+        "dst_rp_path": "outputs/data_clean_split/report/target_stats_report.csv",
+        "clean_json_path": "results/data_clean_split_e08a.json",
+        "clean_startup_path": "startup/data_clean_split.txt",
+        "dev_data_path": "outputs/data_clean_split/data/train.csv",
+        "oot_data_path": "outputs/data_clean_split/data/test.csv",
+        "psi_data_path": "outputs/data_clean_split/data/psi.csv",
+        "cleaned_data_path": "outputs/data_clean_split/data/cleaned_data.csv"
     },
     "settings": {
         "id_col": "id",
@@ -32,16 +32,16 @@
         "fill_val": -9999,
         "method": "date_range",
         "train_split_range": [
-            20230401,
-            20231231
+            20240301,
+            20240930
         ],
         "oot_split_range": [
-            20240101,
-            20240229
+            20241001,
+            20250228
         ],
         "psi_split_range": [
-            20240301,
-            20240331
+            20241001,
+            20250228
         ],
         "test_size": 0.2,
         "random_state": 42
