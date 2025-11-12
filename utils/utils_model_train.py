@@ -19,22 +19,79 @@ import optuna
 # optuna.logging.set_verbosity(optuna.logging.WARNING) ## 只打印警告和异常，不打印中间结果
 ### 使用LR模型训练
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.model_selection import cross_val_score
 import shutil
 
 # 将评估指标函数移到模块级别，避免pickle序列化问题
+# 1) KS评估指标函数
 def ks_score(y_true, y_pred_proba):
-    """KS评估指标函数"""
-    from sklearn.metrics import roc_curve
+    """KS评估指标函数"""  
     fpr, tpr, _ = roc_curve(y_true, y_pred_proba, pos_label=1)
     return abs(fpr - tpr).max()
 
+# 2) AUC评估指标函数
 def auc_score(y_true, y_pred_proba):
     """AUC评估指标函数"""
-    from sklearn.metrics import roc_auc_score
     auc_tmp = roc_auc_score(y_true, y_pred_proba)
     return auc_tmp
 
+# 3）基于预测概率做等频 10 箱，输出：
+#   - overall_bad_rate
+#   - 每箱 bad_rate 列表（从高分到低分）
+#   - head/tail 10% lift
+def decile_lift_and_bad_rates(y_true, y_score, n_bins=10):
+    df = pd.DataFrame({"y": y_true, "score": y_score})
+    # 按 score 从高到低排序（高分 [概率]= 风险高）
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    
+    # 利用 rank 做等频分箱
+    df["rank"] = df["score"].rank(method="first", ascending=False)
+    df["decile"] = pd.qcut(df["rank"], q=n_bins, labels=False, duplicates="drop") #duplicates="drop" 在样本量小或重复值多时避免因无法分箱报错。
+    
+    overall_bad_rate = df["y"].mean()  # 1=坏人的占比
+    
+    bad_rates = []
+    for d in range(df["decile"].max() + 1):
+        sub = df[df["decile"] == d]
+        if len(sub) == 0:
+            bad_rates.append(np.nan)
+        else:
+            bad_rates.append(sub["y"].mean())
+    
+    # head 10% (decile=0)、tail 10% (最后一箱)
+    head_bad_rate = bad_rates[0]
+    tail_bad_rate = bad_rates[-1]
+    
+    if overall_bad_rate == 0:
+        lift_head = np.nan
+        lift_tail = np.nan
+    else:
+        lift_head = head_bad_rate / overall_bad_rate
+        lift_tail = tail_bad_rate / overall_bad_rate
+    
+    return overall_bad_rate, bad_rates, lift_head, lift_tail
+
+
+# 4）单调性约束（坏人占比随分数从高到低单调递减）
+#  bad_rates: 从 decile 0 (最高分) -> decile 9 (最低分) 的坏人占比列表
+# 输出：monotonic_violation >= 0
+#   - 如果完全单调递减（允许相等），则 monotonic_violation = 0
+#   - 如果有违背单调的地方，monotonic_violation > 0，越大表示越严重
+def monotonicity_violation(bad_rates):
+    bad_rates = np.array(bad_rates, dtype=float)
+    # 去掉 NaN
+    valid = ~np.isnan(bad_rates)
+    br = bad_rates[valid]
+    if len(br) <= 1:
+        return 0.0
+    
+    # 理想情况：br[i] >= br[i+1] （非增）
+    diffs = br[1:] - br[:-1]  # 如果 >0 就是违背单调递减
+    max_violation = np.max(np.maximum(diffs, 0.0))  # 最大“向上跳”的幅度
+    return float(max_violation)
+
+# LR模型超参数寻优
 def train_lr_with_optuna(X_train, y_train, X_test, y_test, dic_p):
     n_trials = dic_p["n_trials"]
     ks_threshold_min = dic_p['ks_threshold_min']
@@ -71,7 +128,7 @@ def train_lr_with_optuna(X_train, y_train, X_test, y_test, dic_p):
 
     return best_params
 
-#### Step 3: LightGBM + Optuna
+# LightGBM + Optuna 模型超参数寻优
 def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
     IF_RUN = dic_p['RUN_HPO']
     config_model_params = dic_p['model_param']
@@ -86,11 +143,26 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         print(f"   - KS差值阈值: {ks_gap_threshold:.3f}")
         print(f"   - 训练集样本: {len(X_train)}")
         print(f"   - 测试集样本: {len(X_test)}")
-    
-        def objective(trial, ks_threshold_min, ks_gap_threshold):
+
+        # 定义约束函数
+        def constraints(trial: optuna.Trial):
+            ks_gap = trial.user_attrs["ks_gap"]
+            mono_violation = trial.user_attrs["mono_violation"]
+            
+            # 约束1：KS gap <= 0.05
+            g1 = ks_gap - 0.05
+            
+            # 约束2：单调性违背程度 <= 0（完全单调则 mono_violation=0，否则>0）
+            g2 = mono_violation  # 已经是 >=0 的量，要求 <=0
+            
+            return (g1, g2)
+
+        # 定义目标函数
+        def objective(trial: optuna.Trial):
             # 获取当前试验的参数
             search_space = dic_p['model_selection_params']
             param_grid = {
+                "min_split_gain": trial.suggest_int("min_split_gain", 0,10,step=1),
                 "learning_rate": trial.suggest_float("learning_rate", *search_space["learning_rate"]),
                 "num_leaves": trial.suggest_int("num_leaves", *search_space["num_leaves"]),
                 "max_bin": trial.suggest_int("max_bin", *search_space["max_bin"]),
@@ -111,44 +183,176 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
             model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)],
                     eval_metric=ks_metric, callbacks=[lgb.early_stopping(50),lgb.log_evaluation(0)])
             
-            # 计算指标
+            # 预测概率
             pred_train = model.predict_proba(X_train)[:, 1]
             pred_test = model.predict_proba(X_test)[:, 1]
+
+            # 计算KS指标
             ks_train = ks_score(y_train, pred_train)
             ks_test = ks_score(y_test, pred_test)
+            ks_gap = abs(ks_train - ks_test)
+            # head/tail 10% lift + decile 坏人占比
+            overall_bad_rate, bad_rates, lift_head10, lift_tail10 = decile_lift_and_bad_rates(y_test, pred_test, n_bins=10)
+            mono_violation = monotonicity_violation(bad_rates)
+
+            # 设置trial的属性-⑥ 把所有中间结果存到 user_attrs，后面 constraints_func 和 DataFrame 都会用到
             trial.set_user_attr("best_iteration", model.best_iteration_)
             trial.set_user_attr("ks_train", ks_train)
             trial.set_user_attr("ks_test", ks_test)
             trial.set_user_attr("params", param_grid)
-            # 优先满足条件的trial
-            if (ks_test >= ks_threshold_min and abs(ks_train - ks_test) <= ks_gap_threshold and ks_train > ks_test):
-                return ks_test
+            trial.set_user_attr("ks_gap", ks_gap)
+            trial.set_user_attr("lift_head10", lift_head10)
+            trial.set_user_attr("lift_tail10", lift_tail10)
+            trial.set_user_attr("overall_bad_rate", overall_bad_rate)
+            trial.set_user_attr("bad_rates", bad_rates)
+            trial.set_user_attr("mono_violation", mono_violation)
+
+            # 多目标返回：（多目标优化）
+            #   目标1：ks_test（越大越好）
+            #   目标2：head 10% lift（越大越好）
+            #   目标3：tail 10% lift（越小越好）
+            return ks_test, lift_head10, lift_tail10
+
+        
+        # 使用NSGA-II多目标优化
+        sampler = optuna.samplers.NSGAIISampler(constraints_func=constraints) 
+        study = optuna.create_study(
+            directions=["maximize", "maximize", "minimize"],
+            sampler=sampler
+        )
+        study.optimize(objective, n_trials=n_trials, n_jobs=1)  # n_jobs 可并行
+        
+        # 多目标优化：从Pareto front中选择最佳解
+        print("\n" + "=" * 60)
+        print("多目标优化结果分析")
+        print("=" * 60)
+        
+        # 获取Pareto front中的解（多目标优化返回的是best_trials列表）
+        try:
+            pareto_trials = study.best_trials  # 多目标优化时，best_trials 包含 Pareto front
+        except AttributeError:
+            # 如果没有best_trials属性，尝试从所有trials中筛选
+            pareto_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        
+        print(f"Pareto front 解数量: {len(pareto_trials)}")
+        
+        # 初始化状态标志
+        is_optuna = "optuna_partial"
+        
+        if len(pareto_trials) == 0:
+            # 如果没有Pareto解，使用所有trials中最好的
+            print("警告：未找到Pareto front解，使用所有trials中KS_test最高的解")
+            all_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            if len(all_trials) == 0:
+                raise ValueError("没有完成的trials，无法选择最佳解")
+            best_trial = max(all_trials, key=lambda t: t.user_attrs.get("ks_test", -1))
+            is_optuna = "optuna_not_found"
+        else:
+            # 从Pareto front中选择最佳解
+            # 策略：优先考虑ks_test，同时满足约束条件
+            valid_trials = []
+            for trial in pareto_trials:
+                ks_test_val = trial.user_attrs.get("ks_test", 0)
+                ks_train_val = trial.user_attrs.get("ks_train", 0)
+                ks_gap_val = trial.user_attrs.get("ks_gap", 1.0)
+                
+                # 检查是否满足约束条件
+                meets_ks_threshold = ks_test_val >= ks_threshold_min
+                meets_ks_gap = ks_gap_val <= ks_gap_threshold
+                meets_ks_order = ks_train_val > ks_test_val
+                
+                if meets_ks_threshold and meets_ks_gap and meets_ks_order:
+                    valid_trials.append(trial)
+            
+            if len(valid_trials) > 0:
+                # 从满足约束条件的解中选择ks_test最高的
+                best_trial = max(valid_trials, key=lambda t: t.user_attrs.get("ks_test", -1))
+                print(f"从 {len(valid_trials)} 个满足约束条件的Pareto解中选择最佳解")
+                is_optuna = "optuna_found"
             else:
-                return -1e6 + ks_test  # 不满足条件的trial，值很小但还能区分ks_test大小
-
-        objective_with_params = partial(objective, ks_threshold_min=ks_threshold_min, ks_gap_threshold=ks_gap_threshold)
-        study = optuna.create_study(direction="maximize")
-        study.optimize(objective_with_params, n_trials=n_trials)
-
-        best_trial = study.best_trial
+                # 如果没有满足所有约束条件的解，选择ks_test最高的Pareto解
+                best_trial = max(pareto_trials, key=lambda t: t.user_attrs.get("ks_test", -1))
+                print(f"未找到满足所有约束条件的解，选择KS_test最高的Pareto解")
+                is_optuna = "optuna_partial"
+        
+        # 提取最佳解的参数和指标
         best_params = best_trial.user_attrs["params"].copy()
         best_params["n_estimators"] = best_trial.user_attrs["best_iteration"]
-        best_value = best_trial.user_attrs["ks_test"]
         best_params = {**config_model_params, **best_params}
-
-        # 判断是否满足条件
-        ks_train = best_trial.user_attrs["ks_train"]
-        ks_test = best_trial.user_attrs["ks_test"]
-        if (ks_test >= ks_threshold_min and abs(ks_train - ks_test) <= ks_gap_threshold and ks_train > ks_test):
-            print("找到满足全部条件的最优参数，KS值:", best_value)
+        
+        # 获取所有指标
+        ks_train = best_trial.user_attrs.get("ks_train", 0)
+        ks_test = best_trial.user_attrs.get("ks_test", 0)
+        ks_gap = best_trial.user_attrs.get("ks_gap", 0)
+        lift_head10 = best_trial.user_attrs.get("lift_head10", 0)
+        lift_tail10 = best_trial.user_attrs.get("lift_tail10", 0)
+        mono_violation = best_trial.user_attrs.get("mono_violation", 0)
+        overall_bad_rate = best_trial.user_attrs.get("overall_bad_rate", 0)
+        
+        # 输出详细结果
+        print("\n" + "-" * 60)
+        print("选择的最终模型参数")
+        print("-" * 60)
+        print(f"  KS测试集: {ks_test:.4f}")
+        print(f"  KS训练集: {ks_train:.4f}")
+        print(f"  KS差值: {ks_gap:.4f}")
+        print(f"  Head 10% Lift: {lift_head10:.4f}")
+        print(f"  Tail 10% Lift: {lift_tail10:.4f}")
+        print(f"  单调性违背: {mono_violation:.4f}")
+        print(f"  整体坏样本率: {overall_bad_rate:.4f}")
+        print(f"  最佳迭代次数: {best_trial.user_attrs['best_iteration']}")
+        
+        # 检查约束条件
+        print("\n" + "-" * 60)
+        print("约束条件检查")
+        print("-" * 60)
+        constraint1_ok = ks_gap <= 0.05
+        constraint2_ok = mono_violation <= 0
+        condition1_ok = ks_test >= ks_threshold_min
+        condition2_ok = abs(ks_train - ks_test) <= ks_gap_threshold
+        condition3_ok = ks_train > ks_test
+        
+        print(f"  约束1 (KS gap <= 0.05): {'✓' if constraint1_ok else '✗'} ({ks_gap:.4f})")
+        print(f"  约束2 (单调性违背 <= 0): {'✓' if constraint2_ok else '✗'} ({mono_violation:.4f})")
+        print(f"  条件1 (KS_test >= {ks_threshold_min}): {'✓' if condition1_ok else '✗'} ({ks_test:.4f})")
+        print(f"  条件2 (KS gap <= {ks_gap_threshold}): {'✓' if condition2_ok else '✗'} ({ks_gap:.4f})")
+        print(f"  条件3 (KS_train > KS_test): {'✓' if condition3_ok else '✗'} ({ks_train:.4f} vs {ks_test:.4f})")
+        
+        all_conditions_met = constraint1_ok and constraint2_ok and condition1_ok and condition2_ok and condition3_ok
+        
+        # 根据约束条件满足情况更新状态
+        if all_conditions_met:
+            print(f"\n✓ 找到满足所有约束和条件的最优参数")
             is_optuna = "optuna_found"
         else:
-            print("未找到满足全部条件的参数，已返回KS_test最高的参数，KS值:", best_value)
-            is_optuna = "optuna_not_found"
+            print(f"\n⚠ 部分约束或条件未满足，但已选择最优可用解")
+            # 如果之前标记为found，但现在条件不满足，改为partial
+            if is_optuna == "optuna_found":
+                is_optuna = "optuna_partial"
+            # 如果满足部分关键条件，可以标记为partial
+            elif condition1_ok and condition2_ok:
+                is_optuna = "optuna_partial"
         
+        # 输出Pareto front统计信息
+        if len(pareto_trials) > 1:
+            print("\n" + "-" * 60)
+            print("Pareto Front 统计信息")
+            print("-" * 60)
+            ks_test_values = [t.user_attrs.get("ks_test", 0) for t in pareto_trials]
+            lift_head_values = [t.user_attrs.get("lift_head10", 0) for t in pareto_trials]
+            lift_tail_values = [t.user_attrs.get("lift_tail10", 0) for t in pareto_trials]
+            print(f"  KS_test 范围: [{min(ks_test_values):.4f}, {max(ks_test_values):.4f}]")
+            print(f"  Lift_head10 范围: [{min(lift_head_values):.4f}, {max(lift_head_values):.4f}]")
+            print(f"  Lift_tail10 范围: [{min(lift_tail_values):.4f}, {max(lift_tail_values):.4f}]")
+        
+        # 输出最终选择的模型参数（关键参数）
+        print("\n" + "-" * 60)
+        print("最终选择的模型参数")
         print("best_params:",best_params)
-        print("=" * 60)
-        print("模型optuna自动寻优完成!")       
+        
+        print("\n" + "=" * 60)
+        print(f"模型optuna多目标优化完成! (状态: {is_optuna})")
+        print("=" * 60)       
     else:
         print("=" * 60)
         print("跳过超参数寻优，使用默认参数")
