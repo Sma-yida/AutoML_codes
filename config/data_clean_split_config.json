@@ -30,7 +30,7 @@
             1
         ],
         "fill_val": -9999,
-        "method": "date_range",
+        "method": "data_propration",
         "train_split_range": [
             20240301,
             20240930

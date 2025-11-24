@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.pyc
+*.log
 
 # Jupyter Notebook检查点
 .ipynb_checkpoints/

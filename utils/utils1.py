@@ -326,8 +326,11 @@ def ks_score(true,preds):
 def ks_metric(y_true,y_pred):
     return 'ks',ks_score(y_true,y_pred),True
 
-
-
+# 2) AUC评估指标函数
+def auc_score(y_true, y_pred_proba):
+    """AUC评估指标函数"""
+    auc_tmp = roc_auc_score(y_true, y_pred_proba)
+    return auc_tmp
 
 
 def Transfer2Score(prob=0,p0=600,PDO=40,theta=6.63):
