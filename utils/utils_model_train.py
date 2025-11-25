@@ -115,6 +115,14 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         print(f"   - 训练集样本: {len(X_train)}")
         print(f"   - 测试集样本: {len(X_test)}")
 
+        # 1.5. 设置优化模式（单目标/多目标）|需要参数支持目|目前手动调节
+        # optimization_mode = dic_p.get('optimization_mode', 'single').lower()  # 默认单目标
+        optimization_mode='multi'
+        if optimization_mode not in ['single', 'multi']:
+            print(f"警告：optimization_mode 参数无效 ({optimization_mode})，使用默认值 'single'")
+            optimization_mode = 'single'
+        print(f"   - 优化模式: {'单目标优化（KS_test）' if optimization_mode == 'single' else '多目标优化（KS_test, lift_head10, lift_tail10）'}")
+
         # 2. 定义约束函数
         def constraints(trial: optuna.Trial):
             ks_gap = trial.user_attrs["ks_gap"]
@@ -147,7 +155,7 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
                 "max_depth": trial.suggest_int("max_depth", *search_space["max_depth"]), # 最大深度
                 "scale_pos_weight": 1.0, # 正样本权重
             }
-           ## 训练模型
+            ## 训练模型
             print(f"============== Trial #{trial.number} ==============")
             model_params = config_model_params.copy()
             model_params.update(param_grid)
@@ -159,10 +167,7 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
             
             ## 通过日志寻找最佳的ks所在的真实迭代轮次
             best_score = model.best_score_['valid_1']['ks']   #最佳迭代的ks
-            # best_iteration = model.best_iteration_
-            # print(f"模型记录的的轮次: {best_iteration}")
-            # print(f"最佳迭代轮次的KS: {best_score}")
-            
+        
             # 通过日志寻找最佳的ks所在的真实迭代轮次（全量）
             # 获取所有指标列表
             train_loss_list = eval_result['training']['binary_logloss']   # 训练集的 loss
@@ -183,15 +188,16 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
                 train_ks = train_ks_list[i]
                 valid_loss = valid_loss_list[i]
                 valid_ks = valid_ks_list[i]
-                
+                       
                 # first round or different training loss
-                if prev_train_loss is None or train_loss != prev_train_loss:
+                tolerance = 1e-12   # 阈值
+                if prev_train_loss is None or abs(train_loss - prev_train_loss) > tolerance:
                     new_iter += 1
                     kept.append((log_iter, new_iter, train_loss, train_ks, valid_loss, valid_ks))
                 else:
                     # 重复（training loss 相同）
                     removed.append((log_iter, train_loss, train_ks, valid_loss, valid_ks))
-                    print(f"重复删除: {log_iter}, train_loss={train_loss}, train_ks={train_ks}, valid_loss={valid_loss}, valid_ks={valid_ks}")
+                    # print(f"重复删除: {log_iter}, train_loss={train_loss}, train_ks={train_ks}, valid_loss={valid_loss}, valid_ks={valid_ks}")
                 # 更新 prev
                 prev_train_loss = train_loss
                 # 到最佳 ks 就停止
@@ -199,8 +205,6 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
                     break
 
             best_iteration = kept[-1][1]
-            # print(f"去重后的真实轮次: {best_iteration}") 
-            
             # 使用 booster 的 predict 方法，指定最佳轮次
             pred_train = model.booster_.predict(X_train, num_iteration=best_iteration)
             pred_test = model.booster_.predict(X_test, num_iteration=best_iteration)
@@ -216,17 +220,15 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
             psi_value = compute_psi(pred_train, pred_test)
 
             # ⑤ 打印最关键的调试信息
-            # print(f"模型(去重)预测的KS: {ks_test}")
             if best_score == ks_test:
                 print(f"KS是否一致？一致")
             else:
                 # 红色高亮警告
-                print(f"重大警告：去重后的 KS（{ks_test2}）与 best_score（{best_score}）仍旧不一致！")
+                print(f"重大警告：去重后的 KS（{ks_test}）与 best_score（{best_score}）仍旧不一致！")
 
             ## 设置trial的属性-⑥ 把所有中间结果存到 user_attrs，后面 constraints_func 和 DataFrame 都会用到
-            # 将 param_grid 中的 n_estimators 替换为实际的 best_iteration
             param_grid_final = param_grid.copy()
-            param_grid_final["n_estimators"] = model.best_iteration_
+            param_grid_final["n_estimators"] = model.best_iteration_  # 将 param_grid 中的 n_estimators 替换为实际的 best_iteration
             trial.set_user_attr("ks_train", ks_train)
             trial.set_user_attr("ks_test", ks_test)
             trial.set_user_attr("auc_train", auc_train)
@@ -240,17 +242,16 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
             trial.set_user_attr("mono_violation", mono_violation)
             trial.set_user_attr("psi", psi_value)
 
-            # # 优先满足条件的trial（单目标优化）
-            # if (ks_test >= ks_threshold_min and abs(ks_train - ks_test) <= ks_gap_threshold and ks_train > ks_test):
-            #     return ks_test
-            # else:
-            #     return -1e6 + ks_test  # 不满足条件的trial，值很小但还能区分ks_test大小
-
-            # 多目标返回：（多目标优化）
-            #   目标1：ks_test（越大越好）
-            #   目标2：head 10% lift（越大越好）
-            #   目标3：tail 10% lift（越小越好）
-            return ks_test, lift_head10, lift_tail10
+            # 根据优化模式返回不同的目标值
+            if optimization_mode == 'single':
+                # 单目标优化：只返回 ks_test
+                return ks_test
+            else:
+                # 多目标优化：返回3个目标
+                #   目标1：ks_test（越大越好）
+                #   目标2：head 10% lift（越大越好）
+                #   目标3：tail 10% lift（越小越好）
+                return ks_test, lift_head10, lift_tail10
 
         # 4.总结trial
         def summarize_trial(trial):
@@ -267,15 +268,15 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
                 "overall_bad_rate": trial.user_attrs.get("overall_bad_rate", 0.0),
                 "params": trial.user_attrs.get("params", {}).copy(),
             }
-            ## 检查约束条件（硬约束2个）
+            ## 检查约束条件（硬约束3个：包含business_order_ok作为硬约束用于解的筛选）
             summary["constraint_gap_ok"] = summary["ks_gap"] <= ks_gap_threshold # KS gap <= KS_gap_threshold
             summary["constraint_mono_ok"] = summary["mono_violation"] <= 0 # 单调性违背程度 <= 0
-            summary["constraints_ok"] = summary["constraint_gap_ok"] and summary["constraint_mono_ok"]
-            ## 检查业务条件（3个可选）
+            summary["business_order_ok"] = summary["ks_train"] > summary["ks_test"] # KS_train > KS_test（作为硬约束|不参与参数优化，只做推荐解的筛选）
+            summary["constraints_ok"] = summary["constraint_gap_ok"] and summary["constraint_mono_ok"] and summary["business_order_ok"]
+            ## 检查业务条件（2个可选）
             summary["business_ks_threshold_ok"] = summary["ks_test"] >= ks_threshold_min # KS_test >= KS_threshold_min
-            summary["business_order_ok"] = summary["ks_train"] > summary["ks_test"] # KS_train > KS_test
             summary["business_psi_ok"] = summary["psi"] <= psi_threshold_max # psi < psi_threshold_max
-            summary["business_ok"] = summary["business_ks_threshold_ok"] and summary["business_order_ok"] and summary["business_psi_ok"]
+            summary["business_ok"] = summary["business_ks_threshold_ok"] and summary["business_psi_ok"]
             ## 检查是否满足全部约束和业务条件
             summary["all_conditions_ok"] = summary["constraints_ok"] and summary["business_ok"] 
             return summary
@@ -334,17 +335,25 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         # study = optuna.create_study(direction="maximize")
         # study.optimize(objective_with_params, n_trials=n_trials)
 
-        # 6. 使用NSGA-II多目标优化
+        # 6. 根据优化模式创建study
         sampler = optuna.samplers.NSGAIISampler(constraints_func=constraints) 
-        study = optuna.create_study(
-            directions=["maximize", "maximize", "minimize"],
-            sampler=sampler
-        )
+        if optimization_mode == 'single':
+            # 单目标优化
+            study = optuna.create_study(
+                directions=["maximize"],  ## 单目标KS优化
+                sampler=sampler
+            )
+        else:
+            # 多目标优化
+            study = optuna.create_study(
+                directions=["maximize", "maximize", "minimize"],  ## 多目标优化
+                sampler=sampler
+            )
         study.optimize(objective, n_trials=n_trials)  # n_jobs 可并行
         
-        ## 多目标优化：从Pareto front中选择最佳解
+        ## 优化结果分析
         print("\n" + "=" * 60)
-        print("多目标优化结果分析")
+        print(f"{optimization_mode}模式优化结果分析")
         print("=" * 60)
         
         # 获取Pareto front中的解（多目标优化返回的是best_trials列表）
@@ -371,10 +380,16 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
                 raise ValueError("没有完成的trials，无法选择满足全部约束的最佳解")
             trial_selection_pool = all_summaries
 
+        ##推荐的解希望优先满足
+       
+
         ## 1）优先选：全部约束 + 业务条件都满足的解
         fully_valid = [(trial, summary) for trial, summary in trial_selection_pool if summary["all_conditions_ok"]]
-        ## 2）其次选：至少满足“硬约束”（constraints_ok），但没满足全部业务条件的解
-        partially_valid = [(trial, summary) for trial, summary in trial_selection_pool if (not summary["all_conditions_ok"]) and summary["constraints_ok"]]
+        ## 2）其次选：至少满足“硬约束”（constraints_ok）以及 业务条件2（business_order_ok），但没满足全部业务条件的解
+        if optimization_mode == 'multi':
+            partially_valid = [(trial, summary) for trial, summary in trial_selection_pool if (not summary["all_conditions_ok"]) and summary["constraints_ok"]]
+        else:
+            partially_valid = [(trial, summary) for trial, summary in all_summaries if summary["constraints_ok"]]
         
         if fully_valid:
             # 情况1：有完全满足全部约束+业务条件的解，标记为optuna_found
@@ -384,7 +399,10 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         elif partially_valid:
             # 情况2：没有完全满足的解，但有部分满足约束的解，标记为optuna_partial
             best_trial, best_summary = max(partially_valid, key=lambda ts: ts[1]["ks_test"])
-            print(f"未找到满足全部约束的解，从 {len(partially_valid)} 个部分满足约束的解中选择KS_test最高的解")
+            if optimization_mode == 'multi':
+                print(f"未找到满足全部约束的Pareto front解，从 {len(partially_valid)} 个部分满足约束的Pareto front解中选择KS_test最高的解")
+            else:
+                print(f"未找到满足全部约束的Pareto front解，从 {len(partially_valid)} 个满足全部硬约束的trial中选择KS_test最高的解")
             is_optuna = "optuna_partial"
         else:
             # 情况3：连部分满足约束的解都没有，只能退化为纯KS最大，标记为optuna_not_found
@@ -407,7 +425,8 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         overall_bad_rate = best_summary["overall_bad_rate"]
         
         # 9. 输出详细结果
-        print(f"模型optuna多目标优化完成! (状态: {is_optuna})")
+        mode_str = "多目标优化" if optimization_mode == 'multi' else "单目标优化"
+        print(f"模型optuna{mode_str}完成! (状态: {is_optuna})")
         print("\n"+"-" * 60)       
         print("选择的最终模型指标和参数")
         print(f"  KS训练集 / AUC训练集: {ks_train:.6f} / {best_summary['auc_train']:.6f}")
@@ -421,9 +440,9 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
         print("约束条件检查：")
         print(f"  硬约束1 (KS gap <= {ks_gap_threshold}): {'[OK]' if best_summary['constraint_gap_ok'] else '[FAIL]'} ({ks_gap:.6f})")
         print(f"  硬约束2 (单调性违背 <= 0): {'[OK]' if best_summary['constraint_mono_ok'] else '[FAIL]'} ({mono_violation:.4f})")
+        print(f"  硬约束3 (KS_train > KS_test): {'[OK]' if best_summary['business_order_ok'] else '[FAIL]'} ({ks_train:.6f} vs {ks_test:.6f})")
         print(f"  业务条件1 (KS_test >= {ks_threshold_min}): {'[OK]' if best_summary['business_ks_threshold_ok'] else '[FAIL]'} ({ks_test:.6f})")
-        print(f"  业务条件2 (KS_train > KS_test): {'[OK]' if best_summary['business_order_ok'] else '[FAIL]'} ({ks_train:.6f} vs {ks_test:.6f})")
-        print(f"  业务条件3 (PSI <= {psi_threshold_max}): {'[OK]' if best_summary['business_psi_ok'] else '[FAIL]'} ({psi})")
+        print(f"  业务条件2 (PSI <= {psi_threshold_max}): {'[OK]' if best_summary['business_psi_ok'] else '[FAIL]'} ({psi})")
         print("-" * 60)
     else:
         print("=" * 60)
@@ -572,7 +591,7 @@ def save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_s
     
     return model_metrics
 
-def generate_model_train_json(model_metrics, best_params, feature_imp, output_path, is_optuna,use_fea):
+def generate_model_train_json(model_metrics, best_params, feature_imp, output_path, is_optuna):
     """
     生成模型训练的JSON报告
     
@@ -582,7 +601,6 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
         feature_imp: DataFrame, 特征重要性数据
         output_path: str, 输出路径
         is_optuna: str, Optuna优化状态
-        use_fea: list, 入模特征列表
     """
     try:
         # 1. 模型训练结果
@@ -597,12 +615,12 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
         model_result = {
             "模型训练结果": {
                 "模型训练方式": "LightGBM",
-                "训练集KS值": f"{model_metrics['ks_train']:.4f}",
-                "测试集KS值": f"{model_metrics['ks_test']:.4f}",
-                "训练集AUC值": f"{model_metrics['auc_train']:.4f}",
-                "测试集AUC值": f"{model_metrics['auc_test']:.4f}",
-                "PSI": float(model_metrics.get("psi", None)),
-                "KS差值(KS_train - KS_test)": float(model_metrics.get("ks_gap", None)),
+                "训练集KS值": f"{model_metrics['ks_train']:.6f}",
+                "测试集KS值": f"{model_metrics['ks_test']:.6f}",
+                "训练集AUC值": f"{model_metrics['auc_train']:.6f}",
+                "测试集AUC值": f"{model_metrics['auc_test']:.6f}",
+                "PSI": f"{model_metrics['psi']:.6f}",
+                "KS差值(KS_train - KS_test)":  f"{model_metrics['ks_gap']:.6f}",
                 "模型寻优方式": model_search_desc,
                 "最优参数": best_params
             }
@@ -626,7 +644,7 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
         lift_analysis = {
             "Lift分析结果": {
                 "Lift分析概览": {
-                    f"前{first_bin_pct}%样本的Lift值": f"{first_lift:.1f}"
+                    f"前{first_bin_pct}%样本的Lift值": f"{first_lift:.2f}"
                 },
                  "单调性检测": {
                     "坏样本率是否单调": "是" if mono_violation == 0 else "否",
@@ -657,8 +675,6 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
         zero_features = total_features - non_zero_features
         
         feature_importance = {
-            "入模特征数量": len(use_fea) if use_fea is not None else total_features,
-            "入模特征列表": use_fea if use_fea is not None else [],
             "特征数量统计": {
                 "总特征数": total_features,
                 "非零重要性特征数": non_zero_features,
@@ -982,8 +998,7 @@ def model_train_func(dev_data, oot_data, config):
                 best_params=best_params,
                 feature_imp=feature_imp,
                 output_path=model_json_path,
-                is_optuna=is_optuna,
-                use_fea = use_fea
+                is_optuna=is_optuna
             )
             print(">>> LightGBM模型训练完成！\n")
         elif model_select == 'autogluon':

@@ -21,7 +21,7 @@
         "id_col": "id",
         "label": "label",
         "model_select": "LightGBM",
-        "n_trials": 20,
+        "n_trials": 10,
         "ks_threshold_min": 0.01,
         "ks_gap_threshold": 0.05,
         "autogluon_time_limit": 300,

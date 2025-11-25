@@ -23,7 +23,8 @@ outputs/**/*
 # 日志、结果文件（不上传）
 logs/
 results/
-startup/    
+startup/
+config/    
 
 # 系统文件
 .DS_Store
