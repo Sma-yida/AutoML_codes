@@ -18,12 +18,24 @@ def identify_types(df,remove_fea):
         df: DataFrame，输入数据
         remove_fea: list，需要排除的字段（如ID列、日期列）
     返回:
-        num_fea: list，数值型变量名列表
-        cat_fea: list，类别型变量名列表
+        num_fea: list，数值型变量名列表（保持原始列顺序）
+        cat_fea: list，类别型变量名列表（保持原始列顺序）
     """
-    cat_fea = set(df.select_dtypes(include='object').columns.tolist())-set(remove_fea)
-    num_fea = set(df.columns.tolist())-cat_fea-set(remove_fea)
-    return list(num_fea), list(cat_fea)	
+    # 将 remove_fea 转换为 set 以提高查找效率
+    remove_fea_set = set(remove_fea) if remove_fea else set()
+    
+    cat_fea = []
+    num_fea = []
+    
+    # 遍历所有列，保持原始顺序，只遍历一次以提高性能
+    for col in df.columns:
+        if col not in remove_fea_set:
+            if df[col].dtype == 'object':
+                cat_fea.append(col)
+            else:
+                num_fea.append(col)
+    
+    return num_fea, cat_fea	
 
 def describe_missing(df,features,missing_list):
 	"""
