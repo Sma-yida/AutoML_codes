@@ -45,10 +45,12 @@ def run(config_path, session_id=None):
         result = model_train_func(dev_df,oot_df,config)
         
         if result:
-            print("模型训练完成")
+            log_message = f"[END] 【模型训练完成】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return True
         else:
-            print("模型训练失败")
+            log_message = f"[FAIL] 【模型训练执行失败】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return False
             
     except Exception as e:

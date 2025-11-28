@@ -46,10 +46,12 @@ def run(config_path, session_id=None):
         result = evaluation_func(dev_df,oot_df,psi_df,config)
         
         if result is not None:
-            print("模型评估完成")
+            log_message = f"[END] 【模型评估完成】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return True
         else:
-            print("模型评估失败或未执行(IF_RUN=False)")
+            log_message = f"[FAIL] 【模型评估执行失败或未执行】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return False
             
     except Exception as e:

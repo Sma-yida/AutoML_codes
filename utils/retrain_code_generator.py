@@ -179,13 +179,6 @@ psi_data = pd.read_csv(psi_data_path)
 ###########重要！！！！需要根据各模型Y标签，手动修改##########################
 Target='{label}'
 
-dev=dev_data[dev_data[Target].isin([0,1])]
-oot=oot_data[oot_data[Target].isin([0,1])]
-psi=psi_data[psi_data[Target].isin([0,1])]
-print(dev.shape)
-print(oot.shape)
-print(psi.shape)
-
 ##########重要！！！！需要根据各模型候选特征，手动修改##########################
 #4/5: 入模特征
 var_select_last = {use_features}
@@ -196,12 +189,35 @@ print("入模特征列表:", var_select_last)
 #5/5:模型参数
 param = {model_params}
 
-clf = lgb.LGBMClassifier(**param)
-model_lgb =deepcopy(clf) 
-model_lgb.fit(dev[var_select_last],dev[Target])
 
+
+# #============识别类别型特征并转换为category类型（与训练时保持一致）===========
+cat_fea = []
+for feat in var_select_last:
+    if dev_data[feat].dtype == 'object':
+        cat_fea.append(feat)
+        # 对原始数据也转换（用于后续预测）
+        dev_data[feat] = dev_data[feat].astype('category')
+        oot_data[feat] = oot_data[feat].astype('category')
+        psi_data[feat] = psi_data[feat].astype('category')
+if len(cat_fea) > 0:
+    print(f"类别型特征数量: {{len(cat_fea)}}")
+    print(f"类别型特征: {{cat_fea}}")
+else:
+    print("未发现类别型特征")
+
+dev=dev_data[dev_data[Target].isin([0,1])]
+oot=oot_data[oot_data[Target].isin([0,1])]
+psi=psi_data[psi_data[Target].isin([0,1])]
+print(dev.shape)
+print(oot.shape)
+print(psi.shape)
 
 # #=========================================predict=======================================
+clf = lgb.LGBMClassifier(**param)
+model_lgb =deepcopy(clf) 
+model_lgb.fit(dev[var_select_last],dev[Target], categorical_feature=cat_fea)
+
 lgb_pred_train=model_lgb.predict_proba(dev[var_select_last])[:,1]
 lgb_auc_train=roc_auc_score(dev[Target],lgb_pred_train)
 lgb_ks_train=ks_score(dev[Target],lgb_pred_train)
@@ -209,7 +225,6 @@ print('--------------------------------')
 print('lgb auc_train : {{}}'.format(lgb_auc_train))
 print('lgb ks_train : {{}}'.format(lgb_ks_train))
 print('--------------------------------')
-
 
 lgb_pred_oot=model_lgb.predict_proba(oot[var_select_last])[:,1]
 lgb_auc_oot=roc_auc_score(oot[Target],lgb_pred_oot)

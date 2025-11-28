@@ -36,10 +36,12 @@ def run(config_path, session_id=None):
         results = data_quality(df, config)
         
         if results:
-            print("数据质量分析完成")
+            log_message = f"[END] 【数据质量分析】完成于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return True
         else:
-            print("数据质量分析未执行 (IF_RUN=False)")
+            log_message = f"[FAIL] 【数据质量分析执行失败或未执行】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return False
             
     except Exception as e:

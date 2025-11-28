@@ -37,10 +37,12 @@ def run(config_path, session_id=None):
         result = data_split_func(df, config)
         
         if result:
-            print("数据清洗与切分完成")
+            log_message = f"[END] 【数据清洗与切分】完成于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return True
         else:
-            print("数据清洗与切分未执行")
+            log_message = f"[FAIL] 【数据清洗与切分执行失败】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return False
             
     except Exception as e:

@@ -48,13 +48,14 @@ def spliter_report(X_train, X_test, time_col, label_col, save_path):
     return df_all
 
 #数据清洗-样本选择
-def clean_input_data(data,label,channel_col,num_fea, product_list_keep=None, label_list_keep=None,fill_val=-9999,min_sample_size=500):
+def clean_input_data(data,label,channel_col,num_fea,cat_fea, product_list_keep=None, label_list_keep=None,fill_val=-9999,min_sample_size=500):
     """
     模型训练前的数据清洗函数
 
     参数说明：
     - data: 原始DataFrame
     - num_fea: 数值特征-转换为数值
+    - cat_fea: 类别特征-转换为类别
     - product_list_keep: 保留的产品渠道列表（为空则不筛选）
     - label_list_keep: 保留的标签列表（为空则默认保留[0, 1]）
     - fill_val: 缺失值填充值
@@ -80,12 +81,16 @@ def clean_input_data(data,label,channel_col,num_fea, product_list_keep=None, lab
     #     df_clear = df_clear[(df_clear[date_col] >= start_date) & (df_clear[date_col] <= end_date)]
 
     # 缺失值填充
-    df_clear.fillna(fill_val, inplace=True)
-    df_clear.replace('', fill_val, inplace=True)
+    for i in num_fea:
+        df_clear[i] = df_clear[i].fillna(fill_val)
+        df_clear[i] = df_clear[i].replace('', fill_val)
+    
+    str_fill_val = str(fill_val)
+    for i in cat_fea:
+        df_clear[i] = df_clear[i].fillna(str_fill_val)
+        df_clear[i] = df_clear[i].replace('', str_fill_val)
+    
     df_clear.reset_index(drop=True, inplace=True)
-
-    # # 数值特征转换为数值
-    # data.fillna(fill_val, inplace=True)
 
     # 样本量校验
     if len(df_clear) < min_sample_size:
@@ -151,9 +156,9 @@ def data_clear_func(df,config):
         
         os.makedirs(save_dir, exist_ok=True)
         # 数据识别
-        num_fea, _ = identify_types(df=df,remove_fea=base_fea)
+        num_fea, cat_fea = identify_types(df=df,remove_fea=base_fea)
         # 样本筛选和缺失值填充
-        data = clean_input_data(data=df, channel_col =channel_col, label =label,num_fea =num_fea, 
+        data = clean_input_data(data=df, channel_col =channel_col, label =label,num_fea =num_fea, cat_fea=cat_fea,
                                 product_list_keep =product_list_keep,label_list_keep =label_list_keep,fill_val =fill_val,min_sample_size=500)
         
         # 保存清洗后的所有数据到指定路径，不保存索引

@@ -1,6 +1,7 @@
 import os  
 from .utils1 import *
 from .pyce1 import *
+from .utils_data_quality import identify_types
 from copy import deepcopy
 import traceback
 import json
@@ -15,6 +16,8 @@ from sklearn import  metrics
 # from sklearn.model_selection import GridSearchCV,train_test_split
 from sklearn_pandas import DataFrameMapper
 from sklearn2pmml import PMMLPipeline,sklearn2pmml
+from sklearn2pmml.decoration import CategoricalDomain
+from sklearn2pmml.preprocessing import PMMLLabelEncoder
 import optuna
 import pandas as pd
 # optuna.logging.set_verbosity(optuna.logging.WARNING) ## 只打印警告和异常，不打印中间结果
@@ -96,7 +99,7 @@ def train_lr_with_optuna(X_train, y_train, X_test, y_test, dic_p):
     return best_params
 
 # LightGBM + Optuna 模型超参数寻优
-def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
+def train_lgb_with_optuna(X_train, y_train, X_test, y_test, cat_fea, dic_p):
     IF_RUN = dic_p['RUN_HPO']
     config_model_params = dic_p['model_param']
     optuna_trials_csv_path = dic_p.get('optuna_trials_csv_path')
@@ -162,8 +165,8 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
             model = lgb.LGBMClassifier(**model_params)
             # 使用ks早停和ks评估，来增加ks的优化权重
             eval_result = {}
-            model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)],
-                    eval_metric=ks_metric, callbacks=[lgb.early_stopping(50),lgb.log_evaluation(0),lgb.record_evaluation(eval_result)])          
+            model.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], eval_metric=ks_metric, categorical_feature=cat_fea,
+                     callbacks=[lgb.early_stopping(50),lgb.log_evaluation(0),lgb.record_evaluation(eval_result)])          
             
             ## 通过日志寻找最佳的ks所在的真实迭代轮次
             best_score = model.best_score_['valid_1']['ks']   #最佳迭代的ks
@@ -455,7 +458,7 @@ def train_lgb_with_optuna(X_train, y_train, X_test, y_test, dic_p):
     return best_params, is_optuna
 
 ### Step 4: 保存 PMML 模型
-def save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_save_path):
+def save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_save_path,cat_fea=[]):
     """
     训练 LightGBM 模型、评估指标、保存PMML模型。
     
@@ -464,15 +467,31 @@ def save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_
     - X_test, y_test: 测试集特征和标签
     - use_fea: 使用的特征列表
     - model_save_path: PMML模型保存路径
-    
+    - cat_fea: 类别型特征列表
     返回：
     - model_metrics: 包含训练集和测试集评估指标的字典
     """
     X_train = X_train[use_fea]
     X_test = X_test[use_fea] 
-    mapper = DataFrameMapper([(f, None) for f in use_fea])
+    print(f"类别型特征: {cat_fea}")
+
+    tmp_mapper = []
+    cat_indices = []
+    for index,i in enumerate(X_train.columns.tolist()):
+        if i  in cat_fea:
+            tmp_mapper.append((i,[CategoricalDomain(),PMMLLabelEncoder()]))
+            cat_indices.append(index)
+        else:
+            tmp_mapper.append((i,None))
+    
+    mapper = DataFrameMapper(tmp_mapper)
     pipeline = PMMLPipeline([("mapper", mapper), ("classifier", deepcopy(model_lgb))])
-    pipeline.fit(X_train, y_train)
+    # 传递类别特征索引，让LightGBM使用原生类别特征处理方式
+    pipeline.fit(X_train, y_train, classifier__categorical_feature=cat_indices)
+
+    # mapper = DataFrameMapper([(f, None) for f in use_fea])
+    # pipeline = PMMLPipeline([("mapper", mapper), ("classifier", deepcopy(model_lgb))])
+    # pipeline.fit(X_train, y_train)
 
     # 预测 + 计算指标
     pmml_pred_train = pipeline.predict_proba(X_train)[:, 1]
@@ -524,7 +543,7 @@ def save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_
     return model_metrics
 
 
-def save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_save_path):
+def save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_save_path, cat_fea=[]):
     """
     训练 LightGBM 模型、评估指标、保存模型（如果KS一致）。
     
@@ -534,6 +553,7 @@ def save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, model_s
     - best_value: optuna 训练时的最佳 ks_test 值
     - best_params: optuna 输出的最优参数（包含 n_estimators）
     - model_name: 要保存的模型文件名，默认是 modelname_ex.pkl
+    - cat_fea: 类别型特征列表
     """
     X_train = X_train[use_fea]
     X_test = X_test[use_fea]
@@ -603,6 +623,25 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
         is_optuna: str, Optuna优化状态
     """
     try:
+        # 定义需要展示的关键参数列表
+        key_params_list = [
+            "importance_type",
+            "min_split_gain",
+            "learning_rate",
+            "num_leaves",
+            "max_bin",
+            "reg_alpha",
+            "reg_lambda",
+            "subsample",
+            "colsample_bytree",
+            "subsample_freq",
+            "min_child_weight",
+            "n_estimators"
+        ]
+        
+        # 从 best_params 中筛选出关键参数
+        key_params = {k: v for k, v in best_params.items() if k in key_params_list}
+        
         # 1. 模型训练结果
         if is_optuna == "optuna_found":
             model_search_desc = "Optuna自动寻优(满足条件)"
@@ -619,32 +658,22 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
                 "测试集KS值": f"{model_metrics['ks_test']:.6f}",
                 "训练集AUC值": f"{model_metrics['auc_train']:.6f}",
                 "测试集AUC值": f"{model_metrics['auc_test']:.6f}",
-                "PSI": f"{model_metrics['psi']:.6f}",
-                "KS差值(KS_train - KS_test)":  f"{model_metrics['ks_gap']:.6f}",
+                "PSI(train & test)": f"{model_metrics['psi']:.6f}",
+                "KS差值":  f"{model_metrics['ks_gap']:.6f}",
                 "模型寻优方式": model_search_desc,
-                "最优参数": best_params
+                "最优关键参数": key_params
             }
         }
          # ---------------------------------------------------------------------
         # 2. 新增模块：Lift & 分箱结果
         raw_lift = model_metrics.get("df_lift", None)
         lift_df = pd.DataFrame(raw_lift) if raw_lift is not None else pd.DataFrame()
-        total_bins = len(lift_df)
-        # 根据实际分箱数量计算百分比
-        # 注意：由于duplicates='drop'，实际分箱数量可能少于预期
-        if len(lift_df) > 0:
-            # 计算第一箱的实际样本比例
-            first_bin_ratio = lift_df.iloc[0]['acc_num_ration']  # 累积样本比例
-            first_bin_pct = round(first_bin_ratio * 100, 1)
-        else:
-            first_bin_pct = 0         
-        # 确保有足够的分箱数据
-        first_lift = lift_df.iloc[0]['lift'] if len(lift_df) > 0 else 0
         mono_violation = float(model_metrics.get("mono_violation", None))
         lift_analysis = {
             "Lift分析结果": {
                 "Lift分析概览": {
-                    f"前{first_bin_pct}%样本的Lift值": f"{first_lift:.2f}"
+                    f"头部10%样本的Lift值": f"{model_metrics['lift_head10']:.2f}",
+                    f"尾部10%样本的Lift值": f"{model_metrics['lift_tail10']:.2f}",
                 },
                  "单调性检测": {
                     "坏样本率是否单调": "是" if mono_violation == 0 else "否",
@@ -662,8 +691,8 @@ def generate_model_train_json(model_metrics, best_params, feature_imp, output_pa
                 "样本数": int(row['num']),
                 "好样本": int(row['good']),
                 "坏样本": int(row['bad']),
-                "坏率": f"{row['bad_ration']:.1%}",  # 使用bad_ration列
-                "基准坏率": f"{overall_bad_rate:.1%}",
+                "坏率": f"{row['bad_ration']:.2%}",  # 使用bad_ration列
+                "基准坏率": f"{overall_bad_rate:.2%}",
                 "Lift": f"{row['lift']:.2f}"
             }
             lift_analysis["Lift分析结果"]["等频十分箱明细"].append(lift_info)
@@ -950,6 +979,16 @@ def model_train_func(dev_data, oot_data, config):
         print(f"  - 当前模型选择: {model_select}")
         print("=" * 60)
 
+        ## 区分数值型特征和类别型特征
+        num_fea, cat_fea = identify_types(dev_data[use_fea])
+        for i in cat_fea:
+            dev_data[i] = dev_data[i].astype('category')
+            oot_data[i] = oot_data[i].astype('category')
+        print(dev_data[cat_fea].dtypes)
+        print(f"数值型特征数量: {len(num_fea)}")
+        print(f"类别型特征数量: {len(cat_fea)}")
+        print(f"类别型特征: {cat_fea}")
+
         if model_select == 'lightgbm':
             # ====== LightGBM模型训练 ======
             print("\n>>> LightGBM模型训练开始 ...")
@@ -966,6 +1005,7 @@ def model_train_func(dev_data, oot_data, config):
                 y_train=y_train,
                 X_test=X_test,
                 y_test=y_test,
+                cat_fea = cat_fea,
                 dic_p=dic_p
             )
             # 保存模型最优参数
@@ -975,13 +1015,15 @@ def model_train_func(dev_data, oot_data, config):
             ## 使用调参构造模型
             model_lgb = lgb.LGBMClassifier(**best_params)
             print(f"入模特征数量: {len(use_fea)}")
+            # print(f"数值型特征数量: {len(num_fea)}")
+            # print(f"类别型特征数量: {len(cat_fea)}")
             print("入模特征为：", use_fea)
             
             # === Step 5.1. 评估模型 + 导出PKL ===
-            model_metrics = save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, pkl_model_path)
+            model_metrics = save_model_pkl(model_lgb, X_train, y_train, X_test, y_test, use_fea, pkl_model_path, cat_fea)
             
             # === Step 5.2. 评估模型 + 导出PMML ===
-            pmml_metrics = save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, pmml_model_path)
+            pmml_metrics = save_model_pmml(model_lgb, X_train, y_train, X_test, y_test, use_fea, pmml_model_path,cat_fea)
     
             ## 特征重要性评估筛选
             model_lgb = deepcopy(model_lgb)

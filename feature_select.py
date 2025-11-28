@@ -45,10 +45,12 @@ def run(config_path, session_id=None):
         result = select_features_func(dev_df, oot_df, config)
         
         if result:
-            print("特征筛选完成")
+            log_message = f"[END] 【特征筛选完成】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return True
         else:
-            print("特征筛选失败")
+            log_message = f"[FAIL] 【特征筛选执行失败】于 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            print(log_message)
             return False
             
     except Exception as e:

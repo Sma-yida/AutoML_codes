@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 # sys.path.append('/PycharmProjects/autoML-pipline/utils/')
 from .utils1 import *
 from .pyce1 import *
-# from data_utils import *  # 移除循环导入
+from .utils_data_quality import identify_types
 from copy import deepcopy
 import pickle
 
@@ -131,9 +131,9 @@ def generate_evaluation_json(train_overall_df, test_overall_df, test_channel_df,
             "样本总数": int(train_row['total']),
             "好样本": int(train_row['good']),
             "坏样本": int(train_row['bad']),
-            "坏率": f"{train_row['bad_ratio']:.1%}",
-            "AUC": f"{train_row['auc']:.3f}",
-            "KS": f"{train_row['ks']:.3f}"
+            "坏率": f"{train_row['bad_ratio']:.2%}",
+            "AUC": f"{train_row['auc']:.6f}",
+            "KS": f"{train_row['ks']:.6f}"
         }
         model_performance["模型效果评估"].append(train_performance)
         
@@ -145,16 +145,16 @@ def generate_evaluation_json(train_overall_df, test_overall_df, test_channel_df,
             "样本总数": int(test_row['total']),
             "好样本": int(test_row['good']),
             "坏样本": int(test_row['bad']),
-            "坏率": f"{test_row['bad_ratio']:.1%}",
-            "AUC": f"{test_row['auc']:.3f}",
-            "KS": f"{test_row['ks']:.3f}"
+            "坏率": f"{test_row['bad_ratio']:.2%}",
+            "AUC": f"{test_row['auc']:.6f}",
+            "KS": f"{test_row['ks']:.6f}"
         }
         model_performance["模型效果评估"].append(test_performance)
         
         # 2. 模型稳定性评估
         stability = {
             "模型稳定性评估": {
-                "模型PSI值": f"{psi_value:.3f}",
+                "模型PSI值": f"{psi_value:.4f}",
                 "稳定性评估": "模型稳定性良好" if psi_value < 0.1 else "模型稳定性较差"
             }
         }
@@ -170,9 +170,9 @@ def generate_evaluation_json(train_overall_df, test_overall_df, test_channel_df,
                 "样本总数": int(row['total']),
                 "好样本": int(row['good']),
                 "坏样本": int(row['bad']),
-                "坏率": f"{row['bad_ratio']:.1%}",
-                "AUC": f"{row['auc']:.3f}",
-                "KS": f"{row['ks']:.3f}"
+                "坏率": f"{row['bad_ratio']:.2%}",
+                "AUC": f"{row['auc']:.4f}",
+                "KS": f"{row['ks']:.4f}"
             }
             channel_performance["分渠道模型效果"].append(channel)
 
@@ -203,8 +203,8 @@ def generate_evaluation_json(train_overall_df, test_overall_df, test_channel_df,
         lift_analysis = {
             "Lift分析结果": {
                 "Lift分析概览": {
-                    f"前{first_bin_pct}%样本的Lift值": f"{first_lift:.1f}",
-                    f"前{second_bin_pct}%样本的Lift值": f"{second_lift:.1f}"
+                    f"前{first_bin_pct}%样本的Lift值": f"{first_lift:.2f}",
+                    f"前{second_bin_pct}%样本的Lift值": f"{second_lift:.2f}"
                 },
                 "分箱Lift分析": []
             }
@@ -219,8 +219,8 @@ def generate_evaluation_json(train_overall_df, test_overall_df, test_channel_df,
                 "样本数": int(row['num']),
                 "好样本": int(row['good']),
                 "坏样本": int(row['bad']),
-                "坏率": f"{row['bad_ration']:.1%}",  # 使用bad_ration列
-                "基准坏率": f"{lift_res['base_rate']:.1%}",
+                "坏率": f"{row['bad_ration']:.2%}",  # 使用bad_ration列
+                "基准坏率": f"{lift_res['base_rate']:.2%}",
                 "Lift": f"{row['lift']:.2f}"
             }
             lift_analysis["Lift分析结果"]["分箱Lift分析"].append(lift_info)
@@ -298,6 +298,12 @@ def evaluation_func(dev_df, oot_df, psi_df, config):
             final_report_path = config['output_path']['model_evaluation_report_path']
             print('步骤2/8: 输出目录创建完成')
 
+            ## 区分数值型特征和类别型特征
+            num_fea, cat_fea = identify_types(dev_df[mod_var])
+            for i in cat_fea:
+                dev_df[i] = dev_df[i].astype('category')
+                oot_df[i] = oot_df[i].astype('category')
+                psi_df[i] = psi_df[i].astype('category')
             # 模型概率预测
             df_oot = model_pred(df=oot_df, mod=mod, mod_var=mod_var, prob_col=prob_col)
             df_dev = model_pred(df=dev_df, mod=mod, mod_var=mod_var, prob_col=prob_col)
@@ -487,7 +493,6 @@ def evaluation_func(dev_df, oot_df, psi_df, config):
                         print("✗ 串行验证自动生成并执行失败!")
                 except Exception as e:
                     print(f"自动生成并执行串行验证时发生错误: {str(e)}")
-                    import traceback
                     print(traceback.format_exc())
             return True
         return False

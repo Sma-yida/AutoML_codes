@@ -11,7 +11,7 @@ import io
 from PIL import Image
 from dateutil.relativedelta import relativedelta
 
-def identify_types(df,remove_fea):
+def identify_types(df,remove_fea=None):
     """
     identify_types: 识别数值型和类别型变量
     参数:

@@ -858,6 +858,16 @@ def univariate_nomi_prof_recode(X, Y, event=1, recoding_woe=True, recoding_prefi
     if event != 1:
         Y=1-Y
     
+    # 确保X和Y是Series且长度匹配
+    if not isinstance(X, pd.Series):
+        X = pd.Series(X) if hasattr(X, '__len__') and len(X.shape) == 1 else pd.Series(X.flatten() if hasattr(X, 'flatten') else X)
+    if not isinstance(Y, pd.Series):
+        Y = pd.Series(Y) if hasattr(Y, '__len__') and len(Y.shape) == 1 else pd.Series(Y.flatten() if hasattr(Y, 'flatten') else Y)
+    
+    # 确保长度匹配
+    if len(X) != len(Y):
+        raise ValueError(f"X and Y must have the same length. X length: {len(X)}, Y length: {len(Y)}")
+    
     X1 = X[pd.isnull(X)]
     Y1 = Y[pd.isnull(X)]                       
     X2 = X[-pd.isnull(X)]
@@ -865,9 +875,34 @@ def univariate_nomi_prof_recode(X, Y, event=1, recoding_woe=True, recoding_prefi
     r = 0
     min_samples_group=int(len(Y)*prof_min_p)
     
-    d_notnan = pd.DataFrame({"X": X2, "Y": Y2, "Bucket": X2.values.astype('str')})
-    d_nan = pd.DataFrame({"X": X1, "Y": Y1, "Bucket": ['_MISSING_' for i in Y1]})
-    d_bucket = pd.concat([d_notnan,d_nan]).reset_index(drop = True)
+    # 确保Y是数值类型
+    Y2 = pd.to_numeric(Y2, errors='coerce')
+    if len(Y1) > 0:
+        Y1 = pd.to_numeric(Y1, errors='coerce')
+    
+    # 确保X2转换为字符串时长度正确
+    bucket_values = X2.astype('str').values if hasattr(X2, 'astype') else pd.Series(X2).astype('str').values
+    
+    # 创建DataFrame时明确指定Y列的数据类型
+    d_notnan = pd.DataFrame({
+        "X": X2.values, 
+        "Y": Y2.values.astype(float),  # 明确转换为float类型
+        "Bucket": bucket_values
+    })
+    
+    # 处理缺失值
+    if len(Y1) > 0:
+        d_nan = pd.DataFrame({
+            "X": X1.values, 
+            "Y": Y1.values.astype(float),  # 明确转换为float类型
+            "Bucket": ['_MISSING_' for i in range(len(Y1))]
+        })
+        d_bucket = pd.concat([d_notnan,d_nan]).reset_index(drop = True)
+    else:
+        d_bucket = d_notnan.reset_index(drop = True)
+    
+    # 再次确保d_bucket中的Y列是数值类型
+    d_bucket['Y'] = pd.to_numeric(d_bucket['Y'], errors='coerce').astype(float)
  
     # compute WOE for each category values and IV
     woe_raw=WOE()
@@ -937,19 +972,21 @@ def univariate_nomi_prof_recode(X, Y, event=1, recoding_woe=True, recoding_prefi
             for dic_i,dic_v in d2:
                 group_X[dic_i]=list(set(dic_v.Bucket))
             
-            r, p = stats.spearmanr(d2.mean().Bucket_woe, d2.mean().Y)
+            r, p = stats.spearmanr(d2['Bucket_woe'].mean(), d2['Y'].mean())
             prof_cut_group = prof_cut_group - 1
     
     # compute WOE and IV
     woe=WOE()
+    # 确保Y列是数值类型
+    d_bucket['Y'] = pd.to_numeric(d_bucket['Y'], errors='coerce')
     woe_dict, iv=woe.woe_single_x(d_bucket['Bucket_woe_Bucket'],d_bucket.Y, event=1)
     d3 = pd.DataFrame()
     d3['min'] = d2.min().Bucket_woe
     d3['max'] = d2.max().Bucket_woe
-    d3['depvar_n'] = d2.sum().Y
-    d3['count'] = d2.count().Y
-    d3['proportion'] = d2.count().Y/len(Y)
-    d3['depvar_rate'] = d2.mean().Y    
+    d3['depvar_n'] = d2['Y'].sum()
+    d3['count'] = d2['Y'].count()
+    d3['proportion'] = d2['Y'].count()/len(Y)
+    d3['depvar_rate'] = d2['Y'].mean()    
     d3['group'] = [str(i) for i in group_X.values()]
     d3['variable'] = [X.name for i in pd.Categorical(d_bucket['Bucket_woe_Bucket']).categories.values]
     d3['woe'] = list(woe_dict.values())
@@ -1034,6 +1071,10 @@ def nomi_prof_recode(X, Y, event=1, max_missing_rate=0.99, recoding_std=True, re
     :param event: target event, default 1
     """
     iter=0
+    df_profile = pd.DataFrame()
+    df_statistics = pd.DataFrame()
+    nomi_statement_recoding = ''
+    
     for col in X.columns.values:   
         x = X[col]         
         x1 = x[pd.isnull(x)]
@@ -1056,23 +1097,48 @@ def nomi_prof_recode(X, Y, event=1, max_missing_rate=0.99, recoding_std=True, re
             x_profile,x_statistics,x_statement_recoding = univariate_nomi_prof_recode(x, Y, event= event, recoding_prefix=recoding_prefix,
                      recoding_woe=recoding_woe, prof_cut_group = prof_cut_group, monotonic_bin=monotonic_bin , prof_tree_cut=prof_tree_cut, 
                      prof_min_p= prof_min_p, prof_threshold_cor=prof_threshold_cor,class_balance=class_balance)
-        except:
+        except Exception as e:
             x_profile,x_statistics,x_statement_recoding = pd.DataFrame(),pd.DataFrame(),''
-            print("\n\t error occurs")
-            
-        if iter == 1:
-            df_profile = x_profile
-            df_statistics = x_statistics
-            nomi_statement_recoding = x_statement_recoding
-        else:
-            df_profile = pd.concat([df_profile,x_profile])
-            df_statistics = pd.concat([df_statistics,x_statistics])
-            nomi_statement_recoding = nomi_statement_recoding + "\n" + x_statement_recoding
-            
-    df_profile = df_profile.reset_index().sort_values(by=['iv','variable','index'],ascending=[False,True,True])
-    df_profile = df_profile.reset_index(drop  = True).drop('index',axis=1)
-    df_statistics = df_statistics.reset_index().sort_values(by=['iv','variable','index'],ascending=[False,True,True])
-    df_statistics = df_statistics.reset_index(drop  = True).drop('index',axis=1)
+            print(f"\n\t error occurs for feature {col}: {str(e)}")
+            import traceback
+            print(f"\t Traceback: {traceback.format_exc()}")
+        
+        # 合并结果
+        if not x_profile.empty:
+            if df_profile.empty:
+                df_profile = x_profile
+            else:
+                df_profile = pd.concat([df_profile,x_profile])
+        
+        if not x_statistics.empty:
+            if df_statistics.empty:
+                df_statistics = x_statistics
+            else:
+                df_statistics = pd.concat([df_statistics,x_statistics])
+        
+        if x_statement_recoding:
+            if nomi_statement_recoding:
+                nomi_statement_recoding = nomi_statement_recoding + "\n" + x_statement_recoding
+            else:
+                nomi_statement_recoding = x_statement_recoding
+    
+    # 只有当df_profile不为空时才进行排序
+    if not df_profile.empty and 'iv' in df_profile.columns:
+        df_profile = df_profile.reset_index().sort_values(by=['iv','variable','index'],ascending=[False,True,True])
+        df_profile = df_profile.reset_index(drop  = True).drop('index',axis=1)
+    elif not df_profile.empty:
+        df_profile = df_profile.reset_index(drop=True)
+    else:
+        df_profile = pd.DataFrame()
+    
+    if not df_statistics.empty and 'iv' in df_statistics.columns:
+        df_statistics = df_statistics.reset_index().sort_values(by=['iv','variable','index'],ascending=[False,True,True])
+        df_statistics = df_statistics.reset_index(drop  = True).drop('index',axis=1)
+    elif not df_statistics.empty:
+        df_statistics = df_statistics.reset_index(drop=True)
+    else:
+        df_statistics = pd.DataFrame()
+    
     return df_profile,df_statistics,nomi_statement_recoding
 
     ### Features profiling and recoding
@@ -1095,7 +1161,7 @@ def features_prof_recode(Xcont, Xnomi, Y, event=1, max_missing_rate=0.99, recodi
     :output statement_recoding: feature recoding script
     """
     ### Continuous variables profiling and recoding
-    if len(Xcont)==0:
+    if Xcont.empty or len(Xcont.columns) == 0:
         Xcont_profile,Xcont_statistics,Xcont_statement_recoding = pd.DataFrame(),pd.DataFrame(),''
     else:
         try:
@@ -1106,16 +1172,18 @@ def features_prof_recode(Xcont, Xnomi, Y, event=1, max_missing_rate=0.99, recodi
             Xcont_profile,Xcont_statistics,Xcont_statement_recoding = pd.DataFrame(),pd.DataFrame(),''
             print('error occurs')           
     ### Multinominal variables profiling and recoding
-    if len(Xnomi)==0:
+    if Xnomi.empty or len(Xnomi.columns) == 0:
         Xnomi_profile,Xnomi_statistics,Xnomi_statement_recoding = pd.DataFrame(),pd.DataFrame(),''
     else:
         try:
             Xnomi_profile,Xnomi_statistics,Xnomi_statement_recoding = nomi_prof_recode(Xnomi, Y=Y, event=event, max_missing_rate=max_missing_rate, recoding_prefix=recoding_prefix,
                      recoding_woe=recoding_woe, prof_cut_group = prof_cut_group, monotonic_bin=monotonic_bin , prof_tree_cut=prof_tree_cut, 
                      prof_min_p= prof_min_p, prof_threshold_cor=prof_threshold_cor,class_balance=class_balance)
-        except:
+        except Exception as e:
             Xnomi_profile,Xnomi_statistics,Xnomi_statement_recoding = pd.DataFrame(),pd.DataFrame(),''
-            print('error occurs')   
+            print(f'error occurs in nomi_prof_recode: {str(e)}')
+            import traceback
+            print(f'Traceback: {traceback.format_exc()}')   
 
     df_profile = pd.concat([Xcont_profile,Xnomi_profile])
     df_statistics = pd.concat([Xcont_statistics,Xnomi_statistics])

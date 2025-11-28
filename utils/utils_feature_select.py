@@ -2,6 +2,7 @@ import gc
 import pandas as pd
 import numpy as np
 from multiprocessing.pool import Pool
+from .pyce1 import *
 from .utils_data_quality import identify_types
 import os
 import config as pipe_conf
@@ -67,21 +68,40 @@ def _bining(s: pd.Series, max_n: float, min_n: float, init_bins: list, flag: int
     
     return [x for x in np.unique(bins_split) if not math.isnan(x)]
 
-def calculate_iv(data: pd.DataFrame, feature: str, target: str, flag: int, binning_number: int) -> tuple:
-    """计算IV值"""
+def calculate_iv(data: pd.DataFrame, feature: str, target: str, flag: int, binning_number: int, is_categorical: bool = False) -> tuple:
+    """计算IV值
+    
+    Args:
+        data: 数据DataFrame
+        feature: 特征名
+        target: 目标变量名
+        flag: 分箱类型（1=等频，2=等距）
+        binning_number: 分箱数量
+        is_categorical: 是否为类别特征，如果是，则有多少类分多少箱
+    """
     df = data[[feature, target]].copy()
     df = df[df[target].notna()]  # 过滤掉目标变量为空的行
     
-    # 分箱
-    bin_split = bining4iv(df[feature], flag, binning_number)
-    
-    # 替换缺失值为-9999
-    s = df[feature].replace(MISSING_VALUES + [np.nan], -9999)
-    
-    # 按照给定边界进行分箱
-    binned_fc = pd.cut(s, bins=bin_split)
-    result = df.groupby(binned_fc)[target].agg(["count", "sum"]).rename(
-        columns={"count": 'total_count', "sum": "bad_count"})
+    # 判断是否为类别特征
+    if is_categorical or df[feature].dtype == 'object':
+        # 类别特征：有多少类分多少箱，每个类别一个箱
+        # 替换缺失值为字符串'_MISSING_'
+        s = df[feature].fillna('-9999').astype(str)
+        # 直接按类别分组
+        result = df.groupby(s)[target].agg(["count", "sum"]).rename(
+            columns={"count": 'total_count', "sum": "bad_count"})
+    else:
+        # 数值特征：使用原来的分箱逻辑
+        # 分箱
+        bin_split = bining4iv(df[feature], flag, binning_number)
+        
+        # 替换缺失值为-9999
+        s = df[feature].replace(MISSING_VALUES + [np.nan], -9999)
+        
+        # 按照给定边界进行分箱
+        binned_fc = pd.cut(s, bins=bin_split)
+        result = df.groupby(binned_fc)[target].agg(["count", "sum"]).rename(
+            columns={"count": 'total_count', "sum": "bad_count"})
     
     result['good_count'] = result['total_count'] - result['bad_count']
     
@@ -114,23 +134,41 @@ def calculate_iv(data: pd.DataFrame, feature: str, target: str, flag: int, binni
     
     return iv_value, dist_mono_points
 
-def calculate_psi(dev_data: pd.Series, psi_data: pd.Series, flag: int, binning_number: int) -> tuple:
-    """计算PSI值"""
-    # 分箱
-    bins_split = bining4psi(dev_data, psi_data, flag, binning_number)
+def calculate_psi(dev_data: pd.Series, psi_data: pd.Series, flag: int, binning_number: int, is_categorical: bool = False) -> tuple:
+    """计算PSI值
     
-    # 计算PSI
-    psi_value = _calculate_psi_value(dev_data, psi_data, bins_split)
-    psi_value_without_missing = _calculate_psi_value(
-        dev_data.replace(MISSING_VALUES, np.nan),
-        psi_data.replace(MISSING_VALUES, np.nan),
-        bins_split
-    )
-    
-    return psi_value, psi_value_without_missing
+    Args:
+        dev_data: 训练集数据
+        psi_data: 测试集数据
+        flag: 分箱类型（1=等频，2=等距）
+        binning_number: 分箱数量
+        is_categorical: 是否为类别特征，如果是，则有多少类分多少箱
+    """
+    if is_categorical or dev_data.dtype == 'object':
+        # 类别特征：使用所有类别的并集作为分箱
+        dev_data_str = dev_data.fillna('-9999').astype(str)
+        psi_data_str = psi_data.fillna('-9999').astype(str)
+        # 获取所有唯一值
+        all_categories = sorted(set(dev_data_str.unique()) | set(psi_data_str.unique()))
+        # 对于类别特征，PSI计算使用类别分布
+        return _calculate_psi_value_categorical(dev_data_str, psi_data_str, all_categories)
+    else:
+        # 数值特征：使用原来的分箱逻辑
+        # 分箱
+        bins_split = bining4psi(dev_data, psi_data, flag, binning_number)
+        
+        # 计算PSI
+        psi_value = _calculate_psi_value(dev_data, psi_data, bins_split)
+        psi_value_without_missing = _calculate_psi_value(
+            dev_data.replace(MISSING_VALUES, np.nan),
+            psi_data.replace(MISSING_VALUES, np.nan),
+            bins_split
+        )
+        
+        return psi_value, psi_value_without_missing
 
 def _calculate_psi_value(s1: pd.Series, s2: pd.Series, bins_split: list) -> float:
-    """计算PSI值的具体实现"""
+    """计算PSI值的具体实现（数值特征）"""
     train_num = s1.size
     test_num = s2.size
     
@@ -148,17 +186,46 @@ def _calculate_psi_value(s1: pd.Series, s2: pd.Series, bins_split: list) -> floa
     
     return psi_result.sum()
 
+def _calculate_psi_value_categorical(s1: pd.Series, s2: pd.Series, all_categories: list) -> tuple:
+    """计算PSI值的具体实现（类别特征）"""
+    train_num = s1.size
+    test_num = s2.size
+    
+    # 计算每个类别的分布
+    tr_count_ = s1.value_counts().reindex(all_categories, fill_value=0).rename("train")
+    te_count_ = s2.value_counts().reindex(all_categories, fill_value=0).rename("test")
+    
+    _psi_train_prec = tr_count_.apply(lambda x: np.round((x if x > 0 else x + 1) / train_num, 8))
+    _psi_test_prec = te_count_.apply(lambda x: np.round((x if x > 0 else x + 1) / test_num, 8))
+    
+    psi_result = (_psi_train_prec - _psi_test_prec) * (_psi_train_prec / _psi_test_prec).apply(
+        lambda x: math.log(x, math.e) if x > 0 else 0.0).round(4)
+    
+    psi_result.replace(to_replace=np.inf, value=0.0, inplace=True)
+    psi_result.fillna(0.0, inplace=True)
+    
+    psi_value = psi_result.sum()
+    
+    # 对于类别特征，PSI(剔特殊值)和PSI相同（因为类别特征没有特殊值概念）
+    return psi_value, psi_value
+
 def process_feature(args):
     """处理单个特征的统计信息"""
     feature, data, psi_data, target, iv_binning_number, iv_binning_type, psi_binning_number, psi_binning_type,idx,total = args
     try:
         print(f"正在处理特征: {feature} ({idx+1}/{total})")
+        
+        # 判断是否为类别特征
+        is_categorical = data[feature].dtype == 'object'
+        if is_categorical:
+            print("该特征为类别特征")
+        
         # 计算IV值
-        iv_value, mono_stats = calculate_iv(data, feature, target, iv_binning_type, iv_binning_number)
+        iv_value, mono_stats = calculate_iv(data, feature, target, iv_binning_type, iv_binning_number, is_categorical=is_categorical)
         
         # 计算PSI值
         psi_value, psi_value_without_missing = calculate_psi(
-            data[feature], psi_data[feature], psi_binning_type, psi_binning_number
+            data[feature], psi_data[feature], psi_binning_type, psi_binning_number, is_categorical=is_categorical
         )
         
         # 计算缺失率
@@ -166,13 +233,30 @@ def process_feature(args):
         missing_rate = data[feature].replace(MISSING_VALUES, np.nan).isna().mean()
         
         # 计算其他统计量
-        valid_data = data[feature][data[feature] > STATISTIC_BOUND]
-        mean_value = valid_data.mean()
-        std_value = valid_data.std(ddof=1)
-        min_value = valid_data.min()
-        max_value = valid_data.max()
-        unique_rate = valid_data.value_counts(dropna=True).max() / len(data)
-        neg_rate = (data[feature] < 0).mean()
+        if is_categorical:
+            # 类别特征：数值型统计量置空
+            mean_value = np.nan
+            std_value = np.nan
+            min_value = np.nan
+            max_value = np.nan
+            neg_rate = np.nan
+            # 计算单一值占比（类别特征）
+            unique_rate = data[feature].value_counts(dropna=True).max() / len(data) if len(data[feature].value_counts(dropna=True)) > 0 else 0.0
+        else:
+            # 数值特征：正常计算
+            valid_data = data[feature][data[feature] > STATISTIC_BOUND]
+            mean_value = valid_data.mean()
+            std_value = valid_data.std(ddof=1)
+            min_value = valid_data.min()
+            max_value = valid_data.max()
+            unique_rate = valid_data.value_counts(dropna=True).max() / len(data)
+            neg_rate = (data[feature] < 0).mean()
+        
+        # 格式化负值占比
+        if is_categorical:
+            neg_rate_str = np.nan # 类别特征没有负值概念
+        else:
+            neg_rate_str = f"{neg_rate:.2%}"
         
         return {
             'Feature': feature,
@@ -185,7 +269,7 @@ def process_feature(args):
             'min': min_value,
             'max': max_value,
             '单一值占比': f"{unique_rate:.2%}",
-            '<0': f"{neg_rate:.2%}",
+            '<0': neg_rate_str,
             'mono_stats': mono_stats
         }
     except Exception as e:
@@ -480,15 +564,20 @@ def select_features_func(dev_data, psi_data, config):
                 mono_var = pd.concat([r['mono_stats'] for r in results if r is not None])
                 
                 # 保存特征统计分析结果
-                single_var.to_csv(single_var_path, index=False)
-                mono_var.to_csv(mono_var_path, index=False)
+                single_var.to_csv(single_var_path, index=False, encoding='utf-8-sig')
+                mono_var.to_csv(mono_var_path, index=False, encoding='utf-8-sig')
         else:
             # 数据识别
-            num_fea, _ = identify_types(df=dev_data, remove_fea=base_fea)
+            num_fea, cat_fea = identify_types(df=dev_data, remove_fea=base_fea)
+
+            # 合并数值特征和类别特征，统一处理
+            all_fea = num_fea + cat_fea
+            # all_fea = cat_fea
+            logger.info(f"数值特征数量: {len(num_fea)}, 类别特征数量: {len(cat_fea)}, 总特征数量: {len(all_fea)}")
             
-            # 使用多进程计算特征统计量
+            # 使用多进程计算特征统计量（包括数值特征和类别特征）
             n_cpus = min(get_process_num(), 4)  # 限制最大进程数，避免Windows多进程问题
-            args_list = [(feat, dev_data, psi_data, label_col, 10, 1, 10, 1, idx, len(num_fea)) for idx, feat in enumerate(num_fea)]
+            args_list = [(feat, dev_data, psi_data, label_col, 10, 1, 10, 1, idx, len(all_fea)) for idx, feat in enumerate(all_fea)]
             
             # 如果特征数量较少，使用单进程
             if len(args_list) < 10:
@@ -502,8 +591,8 @@ def select_features_func(dev_data, psi_data, config):
             mono_var = pd.concat([r['mono_stats'] for r in results if r is not None])
             
             # 保存特征统计分析结果
-            single_var.to_csv(single_var_path, index=False)
-            mono_var.to_csv(mono_var_path, index=False)
+            single_var.to_csv(single_var_path, index=False, encoding='utf-8-sig')
+            mono_var.to_csv(mono_var_path, index=False, encoding='utf-8-sig')
             
             # 特征筛选
             single_var[["IV", "PSI"]] = single_var[["IV", "PSI"]].astype(float)
@@ -517,19 +606,21 @@ def select_features_func(dev_data, psi_data, config):
             ].values
             
             logger.info(f"After IV>{iv_thresh}, PSI<{psi_thresh}, Missingrate<{miss_thresh}, use_fea counts: {len(filter_fea)}")
-            
+        
+
             # 如果启用Null Importance特征选择
             if use_null_importance:
                 logger.info("Using Null Importance for feature selection")
                 filter_fea = null_importance_select(dev_data, label_col, filter_fea, output_dst, top_n)
                 logger.info(f"After Null Importance selection, use_fea counts: {len(filter_fea)}")
             
-            # 相关性分析
-            iv_dict = {f: single_var.loc[single_var['Feature'] == f, 'IV'].values[0] for f in filter_fea}
+            # 相关性分析（只处理数值特征，类别特征不参与相关性筛选）
+            filter_fea_num = [f for f in filter_fea if dev_data[f].dtype != 'object']
+            iv_dict = {f: single_var.loc[single_var['Feature'] == f, 'IV'].values[0] for f in filter_fea_num}
             sorted_features = sorted(iv_dict.keys(), key=lambda x: (-iv_dict[x], x))
             corr_drop = calculate_correlation(dev_data, sorted_features, corr_thresh)
-            use_fea = [i for i in sorted_features if i not in corr_drop]
-            
+
+            use_fea = [i for i in filter_fea if i not in corr_drop]
             logger.info(f"Corr<{corr_thresh}, use_fea counts: {len(use_fea)}")
         
         # 保存结果
